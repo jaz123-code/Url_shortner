@@ -1,4 +1,4 @@
-import uuid
+import random
 from datetime import datetime
 from sqlalchemy.orm import Session
 from models.url_model import URLMapping
@@ -7,9 +7,31 @@ from cache import redis_client
 # Temporary cache to store click counts and access times before flushing to DB
 # Structure: {short_id: {"clicked": int, "last_accessed": datetime}}
 dbCache = {}
+BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
 class URLShortenerService:
     """Service class to handle URL shortening operations"""
-    
+
+    @staticmethod
+    def _base62_encode(number: int) -> str:
+        if number == 0:
+            return BASE62_ALPHABET[0]
+        encoded_chars = []
+        while number > 0:
+            number, rem = divmod(number, 62)
+            encoded_chars.append(BASE62_ALPHABET[rem])
+        return "".join(reversed(encoded_chars))
+
+    @staticmethod
+    def _generate_unique_short_id(db: Session, length: int = 6) -> str:
+        max_value = 62 ** length
+        while True:
+            raw_id = random.randrange(max_value)
+            short_id = URLShortenerService._base62_encode(raw_id).rjust(length, "0")
+            existing = db.query(URLMapping).filter(URLMapping.short_id == short_id).first()
+            if not existing:
+                return short_id
+
     @staticmethod
     def create_short_url(db: Session, original_url: str) -> dict:
         """
@@ -22,8 +44,8 @@ class URLShortenerService:
         Returns:
             Dictionary with short_url and short_id
         """
-        # Generate unique short ID
-        short_id = str(uuid.uuid4())[:6]
+        # Generate unique short ID using Base62 encoding
+        short_id = URLShortenerService._generate_unique_short_id(db)
         short_url = f"http://localhost:8000/{short_id}"
         
         # Create URL mapping record
